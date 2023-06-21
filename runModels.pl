@@ -269,6 +269,12 @@ foreach my $model ( @models ) {
     $attenuationsUncertainty->{'disk'    } = pdl zeros(                                           $diskOpticalDepthCount,$spheroidOpticalDepthCount,$inclinationCount,$wavelengthCount);
     $attenuationsUncertainty->{'spheroid'} = pdl zeros(scalar(@{$model->{'spheroidScaleRadial'}}),$diskOpticalDepthCount,$spheroidOpticalDepthCount,$inclinationCount,$wavelengthCount);
 
+    # Set stellar components for which to compute the attenuation.
+    # my @stellarComponents = ( "disk" );
+    # push(@stellarComponents,"spheroid")
+    # 	if ( exists($model->{'spheroidScaleRadial'}) );
+    my @stellarComponents = ( "spheroid" );
+    
     # Stack to be used for PBS jobs.
     my @jobStack;
 
@@ -288,9 +294,6 @@ foreach my $model ( @models ) {
 	for(my $jOpticalDepth=0;$jOpticalDepth<nelem($spheroidOpticalDepths);++$jOpticalDepth) {
 	    
 	    # Iterate over components.
-	    my @stellarComponents = ( "disk" );
-	    push(@stellarComponents,"spheroid")
-		if ( exists($model->{'spheroidScaleRadial'}) );
 	    foreach my $stellarComponent ( @stellarComponents ) {
 		
 		# Specify the spheroid dimensions and cut off.
@@ -380,15 +383,28 @@ foreach my $model ( @models ) {
     my $opacity = pdl $opacityText;
 
     # Extract wavelengths array.
-    my $wavelengthsJoined = `python hyperionExtractWavelengths.py data/$model->{'label'}Output_disk_0.hdf5`;
+    my $wavelengthsFileName;
+    if      ( -e "data/$model->{'label'}Output_disk_0_0.hdf5" ) {
+	$wavelengthsFileName = "data/".$model->{'label'}."Output_disk_0_0.hdf5";
+    } elsif ( -e "data/$model->{'label'}Output_spheroid_0_0_0.hdf5" ) {
+	$wavelengthsFileName = "data/".$model->{'label'}."Output_spheroid_0_0_0.hdf5";
+    } else {
+	die("Unable to find a file from which to extract wavelengths");
+    }
+    my $wavelengthsJoined = `python hyperionExtractWavelengths.py $wavelengthsFileName`;
     my $wavelengths       = pdl split(" ",$wavelengthsJoined);
 
     # Construct the inclinations array.
-    my $inclinations = pdl sequence($inclinationCount)/($inclinationCount-1)*90.0;
-
+    my $inclinations;
+    if ( $inclinationCount == 1 ) {
+	$inclinations = pdl [ 90.0 ];
+    } else {
+	$inclinations = pdl sequence($inclinationCount)/($inclinationCount-1)*90.0;
+    }
+    
     # Normalize by the unattenuated spectrum to get attenuations.
-    my $unattenuatedDiskSED            = $attenuations           ->{'disk'}->((0),:,:)->copy();
-    my $unattenuatedDiskSEDUncertainty = $attenuationsUncertainty->{'disk'}->((0),:,:)->copy();
+    my $unattenuatedDiskSED            = $attenuations           ->{'disk'}->((0),(0),:,:)->copy();
+    my $unattenuatedDiskSEDUncertainty = $attenuationsUncertainty->{'disk'}->((0),(0),:,:)->copy();
     for(my $i=0;$i<nelem($diskOpticalDepths);++$i) {
 	for(my $j=0;$j<nelem($spheroidOpticalDepths);++$j) {
 	    $attenuationsUncertainty->{'disk'}->(($i),($j),:,:) /= $unattenuatedDiskSED;
@@ -397,7 +413,7 @@ foreach my $model ( @models ) {
     }
     if ( exists($model->{'spheroidScaleRadial'}) ) {
 	for(my $iSpheroidScaleRadial=0;$iSpheroidScaleRadial<scalar(@{$model->{'spheroidScaleRadial'}});++$iSpheroidScaleRadial) {
-	    my $unattenuatedSpheroidSED = $attenuations->{'spheroid'}->(($iSpheroidScaleRadial),(0),:,:)->copy();
+	    my $unattenuatedSpheroidSED = $attenuations->{'spheroid'}->(($iSpheroidScaleRadial),(0),(0),:,:)->copy();
 	    for(my $i=0;$i<nelem($diskOpticalDepths);++$i) {
 		for(my $j=0;$j<nelem($spheroidOpticalDepths);++$j) {
 		    $attenuationsUncertainty->{'spheroid'}->(($iSpheroidScaleRadial),($i),($j),:,:) /= $unattenuatedSpheroidSED;
@@ -408,44 +424,50 @@ foreach my $model ( @models ) {
     }
 
     # Determine interpolation coefficients to high optical depth.
-    print "Computing extrapolation coefficients....\n";
-    my $opticalDepthRange = 10.0; # Factor below maximum tabulated optical depth to which extrapolation should be fit.
-    my $fitSubset         = which($opticalDepthRange*$diskOpticalDepths >= $diskOpticalDepths->((-1)));
     my $coefficients;
-    $coefficients->{'disk'    } = pdl zeroes(                                           nelem($spheroidOpticalDepths),$inclinationCount,$wavelengthCount,2);
-    $coefficients->{'spheroid'} = pdl zeroes(scalar(@{$model->{'spheroidScaleRadial'}}),nelem($spheroidOpticalDepths),$inclinationCount,$wavelengthCount,2);
-    for(my $i=0;$i<$inclinationCount;++$i) {
-	print "  Inclination ".$i." of ".$inclinationCount."\n";
-	for(my $l=0;$l<nelem($spheroidOpticalDepths);++$l) {
-	    for(my $j=0;$j<$wavelengthCount;++$j) {
-		(my $opticalDepthFit, my $coefficientsFit) = fitpoly1d($diskOpticalDepths->($fitSubset)->log(),$attenuations->{'disk'}->($fitSubset,($l),($i),($j))->log(),2);
-		$coefficients->{'disk'}->(($l),($i),($j),:) .= $coefficientsFit;
-		for(my $k=0;$k<scalar(@{$model->{'spheroidScaleRadial'}});++$k) {
-		    (my $opticalDepthFit, my $coefficientsFit) = fitpoly1d($diskOpticalDepths->($fitSubset)->log(),$attenuations->{'spheroid'}->(($k),$fitSubset,($l),($i),($j))->log(),2);
-		    $coefficients->{'spheroid'}->(($k),($l),($i),($j),:) .= $coefficientsFit;
+    if ( $inclinationCount > 1 ) {
+	print "Computing extrapolation coefficients....\n";
+	my $opticalDepthRange = 10.0; # Factor below maximum tabulated optical depth to which extrapolation should be fit.
+	my $fitSubset         = which($opticalDepthRange*$diskOpticalDepths >= $diskOpticalDepths->((-1)));
+	$coefficients->{'disk'    } = pdl zeroes(                                           nelem($spheroidOpticalDepths),$inclinationCount,$wavelengthCount,2);
+	$coefficients->{'spheroid'} = pdl zeroes(scalar(@{$model->{'spheroidScaleRadial'}}),nelem($spheroidOpticalDepths),$inclinationCount,$wavelengthCount,2);
+	for(my $i=0;$i<$inclinationCount;++$i) {
+	    print "  Inclination ".$i." of ".$inclinationCount."\n";
+	    for(my $l=0;$l<nelem($spheroidOpticalDepths);++$l) {
+		for(my $j=0;$j<$wavelengthCount;++$j) {
+		    (my $opticalDepthFit, my $coefficientsFit) = fitpoly1d($diskOpticalDepths->($fitSubset)->log(),$attenuations->{'disk'}->($fitSubset,($l),($i),($j))->log(),2);
+		    $coefficients->{'disk'}->(($l),($i),($j),:) .= $coefficientsFit;
+		    for(my $k=0;$k<scalar(@{$model->{'spheroidScaleRadial'}});++$k) {
+			(my $opticalDepthFit, my $coefficientsFit) = fitpoly1d($diskOpticalDepths->($fitSubset)->log(),$attenuations->{'spheroid'}->(($k),$fitSubset,($l),($i),($j))->log(),2);
+			$coefficients->{'spheroid'}->(($k),($l),($i),($j),:) .= $coefficientsFit;
+		    }
 		}
 	    }
 	}
+	print "   ...done\n";
     }
-    print "   ...done\n";
-
+    
     # Construct the output file.
     my $outputFile = new PDL::IO::HDF5(">".$outputFileName);
     ## Store primary datasets.
     my $spheroidScalesRadial  = pdl $model->{'spheroidScaleRadial'};
-    $outputFile->dataset('inclination'                  )->set($inclinations                     );
-    $outputFile->dataset('wavelength'                   )->set($wavelengths                      );
-    $outputFile->dataset('diskOpticalDepth'             )->set($diskOpticalDepths                );
-    $outputFile->dataset('spheroidOpticalDepth'         )->set($spheroidOpticalDepths            );
-    $outputFile->dataset('spheroidScaleRadial'          )->set($spheroidScalesRadial             );
-    $outputFile->dataset('attenuationDisk'              )->set($attenuations           ->{'disk'});
-    $outputFile->dataset('attenuationUncertaintyDisk'   )->set($attenuationsUncertainty->{'disk'});
-    $outputFile->dataset('extrapolationCoefficientsDisk')->set($coefficients           ->{'disk'});
-    if ( exists($model->{'spheroidScaleRadial'}) ) {
-	$outputFile->dataset('attenuationSpheroid'              )->set($attenuations           ->{'spheroid'});
-	$outputFile->dataset('attenuationUncertaintySpheroid'   )->set($attenuationsUncertainty->{'spheroid'});
-	$outputFile->dataset('extrapolationCoefficientsSpheroid')->set($coefficients           ->{'spheroid'});
-    }
+    $outputFile->dataset('inclination'                      )->set($inclinations                         );
+    $outputFile->dataset('wavelength'                       )->set($wavelengths                          );
+    $outputFile->dataset('diskOpticalDepth'                 )->set($diskOpticalDepths                    );
+    $outputFile->dataset('spheroidOpticalDepth'             )->set($spheroidOpticalDepths                );
+    $outputFile->dataset('spheroidScaleRadial'              )->set($spheroidScalesRadial                 );
+    $outputFile->dataset('attenuationDisk'                  )->set($attenuations           ->{'disk'    })
+	if (                           grep {$_ eq "disk"    } @stellarComponents );
+    $outputFile->dataset('attenuationUncertaintyDisk'       )->set($attenuationsUncertainty->{'disk'    })
+	if (                           grep {$_ eq "disk"    } @stellarComponents );
+    $outputFile->dataset('extrapolationCoefficientsDisk'    )->set($coefficients           ->{'disk'    })
+	if ( defined($coefficients) && grep {$_ eq "disk"    } @stellarComponents );
+    $outputFile->dataset('attenuationSpheroid'              )->set($attenuations           ->{'spheroid'})
+	if (                           grep {$_ eq "spheroid"} @stellarComponents );
+    $outputFile->dataset('attenuationUncertaintySpheroid'   )->set($attenuationsUncertainty->{'spheroid'})
+	if (                           grep {$_ eq "spheroid"} @stellarComponents );
+    $outputFile->dataset('extrapolationCoefficientsSpheroid')->set($coefficients           ->{'spheroid'})
+	if ( defined($coefficients) && grep {$_ eq "spheroid"} @stellarComponents );
     # Add metadata.
     my $dt = DateTime->now->set_time_zone('local');
     (my $tz = $dt->format_cldr("ZZZ")) =~ s/(\d{2})(\d{2})/$1:$2/;
