@@ -1,6 +1,4 @@
 import sys
-import h5py
-import h5py.highlevel
 from hyperion.model import ModelOutput
 
 # Get arguments.
@@ -12,4 +10,4 @@ fileName =sys.argv[1] # File name from which model should be read.
 model     = ModelOutput(fileName)
 sed       = model.get_sed()
 separator = " "
-print separator.join([str(v) for i,v in enumerate(sed.wav)])
+print(separator.join([str(v) for i,v in enumerate(sed.wav)]))

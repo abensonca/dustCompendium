@@ -1,8 +1,5 @@
 # -*- coding: iso-8859-15 -*-
 import sys
-import numpy as np
-import h5py
-import h5py.highlevel
 from hyperion.dust import SphericalDust
 
 # Get arguments.
@@ -15,4 +12,4 @@ dust  = SphericalDust()
 dust.read(dustFile)
 kappaV = dust.optical_properties.interp_chi_wav(0.55)
 
-print kappaV
+print(kappaV)
