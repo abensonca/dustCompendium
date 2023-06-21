@@ -44,7 +44,7 @@ def JaffeMassCylindrical(R,z):
     return np.real(mass)
 
 # Get arguments.
-if ( len(sys.argv) != 18 ):
+if ( len(sys.argv) != 19 ):
     sys.exit("Usage: hyperionBuildModel.py <dustFile> <diskStructureVertical> <diskScaleRadial> <diskScaleVertical> <dustScaleVertical> <diskCutOff> <spheroidStructure> <spheroidScaleRadial> <spheroidCutOff> <stellarComponent> <inclinationCount> <wavelengthMinimum> <wavelengthMaximum> <wavelengthCount> <diskOpticalDepth> <spheroidOpticalDepth> <seed> <fileName>")
 dustFile              =                          sys.argv[ 1]  # Dust file name.
 diskStructureVertical =                          sys.argv[ 2]  # Vertical structure of the disk.
