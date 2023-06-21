@@ -4,8 +4,6 @@
 import sys
 import re
 import numpy as np
-import h5py
-import h5py.highlevel
 from hyperion.model import Model
 from hyperion.dust import SphericalDust
 from hyperion.dust import HenyeyGreensteinDust
