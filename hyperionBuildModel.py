@@ -152,10 +152,10 @@ elif diskStructureVertical == "sechSquared":
     density[largeArgument] += 0.0
 ## Spheroid
 if spheroidStructure == "hernquist":
-    r = sqrt(m.grid.gw**2+m.grid.gz**2)/spheroidScaleRadial
+    r = np.sqrt(m.grid.gw**2+m.grid.gz**2)/spheroidScaleRadial
     density += spheroidRhoCentral/r/(1.0+r)**3
 elif spheroidStructure == "jaffe":
-    r = sqrt(m.grid.gw**2+m.grid.gz**2)/spheroidScaleRadial
+    r = np.sqrt(m.grid.gw**2+m.grid.gz**2)/spheroidScaleRadial
     density += spheroidRhoCentral/r**2/(1.0+r)**2
 
 # Add dust to the model.
